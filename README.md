@@ -1,2 +1,4 @@
 # phoenyx-core-builder
-Repository with automated build for PhoenyxCore Xiaomi SM8450
+Repository with automated build for PhoenyxCore Xiaomi SM8450.
+
+Base on [Carbon Kernel](https://github.com/hrihq/carbon-kernel-cupid)
