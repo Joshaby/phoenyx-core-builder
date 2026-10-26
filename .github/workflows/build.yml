@@ -90,8 +90,8 @@ jobs:
 
           echo "CLANG_PATH=$GITHUB_WORKSPACE/clang" >> "$GITHUB_ENV"
           echo "Compiler version:"
-          "$GITHUB_WORKSPACE/clang/bin/clang" --version | head -n 1
-          "$GITHUB_WORKSPACE/clang/bin/ld.lld" --version | head -n 1
+          "$GITHUB_WORKSPACE/clang/bin/clang" --version | sed -n '1p'
+          "$GITHUB_WORKSPACE/clang/bin/ld.lld" --version | sed -n '1p'
 
       - name: Clone PhoenyxCore Source (Based on LineageOS Xiaomi SM8450)
         run: |
