@@ -145,8 +145,8 @@ jobs:
           export LD="${wrapper}"
           export HOSTLD="${wrapper}"
 
-          # Build Image (cap jobs to 2 during linking to avoid OOM killer)
-          make -j2 O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 Image
+          # Build Image
+          make -j4 O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 Image
 
           if [ ! -s out/arch/arm64/boot/Image ]; then
             echo "::error::Built Image not found!"
