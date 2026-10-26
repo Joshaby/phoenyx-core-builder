@@ -22,6 +22,11 @@ on:
         description: "Create GitHub Release"
         type: boolean
         default: true
+      post_to_telegram:
+        description: "Post build notifications to Telegram"
+        required: true
+        type: boolean
+        default: true
       branch:
         description: "Select branch to build"
         required: true
@@ -56,6 +61,41 @@ jobs:
     steps:
       - name: 🔄 Checkout PhoenyxCore Builder
         uses: actions/checkout@v4
+
+      - name: 📣 Notify Telegram - Build started
+        if: ${{ github.event_name == 'push' || inputs.post_to_telegram }}
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          VERSION_INPUT: ${{ inputs.version || github.ref_name }}
+          COMPILER_INPUT: ${{ inputs.compiler || 'GreenForce-Clang' }}
+          BRANCH_INPUT: ${{ inputs.branch || 'lineage-24.0' }}
+          DEVICE_INPUT: ${{ inputs.device || 'cupid' }}
+          CREATE_RELEASE_INPUT: ${{ inputs.create_release || github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${TELEGRAM_BOT_TOKEN}" || -z "${TELEGRAM_CHAT_ID}" ]]; then
+            echo "::warning::Telegram notification skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID secret is missing."
+            exit 1
+          fi
+
+          version="${VERSION_INPUT#v}"
+          message="$(printf '🚧 PhoenyxCore build started\nVersion: v%s\nBranch: %s\nDevice(s): %s\nCompiler: %s\nCreate release: %s\nWorkflow: https://github.com/%s/actions/runs/%s' \
+            "${version}" "${BRANCH_INPUT}" "${DEVICE_INPUT}" "${COMPILER_INPUT}" \
+            "${CREATE_RELEASE_INPUT:-false}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}")"
+
+          if ! response="$(curl --silent --show-error --fail-with-body \
+            --request POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${message}")"; then
+            echo "::warning::Telegram start notification could not be sent."
+            exit 1
+          fi
+          if ! jq -e '.ok == true' <<< "${response}" >/dev/null; then
+            echo "::warning::Telegram API rejected the start notification."
+            exit 1
+          fi
 
       - name: ⏰ Prepare timezone
         run: |
@@ -211,7 +251,7 @@ jobs:
             cp -f ak3/anykernel.sh "${package_dir}/anykernel.sh"
             sed -i "s|^kernel\\.string=TITLE$|kernel.string=PhoenyxCore ${VERSION_TAG} (${device}) - Build ${BUILD_DATE} - By tg@Joshaby (http://t.me/Joshaby)|" "${package_dir}/anykernel.sh"
 
-            zip_name="PhoenyxCore-v${VERSION_TAG}-${device}-${BUILD_TIME}.zip"
+            zip_name="PhoenyxCore-${VERSION_TAG}-${device}-${BUILD_TIME}.zip"
             (cd "${package_dir}" && zip -r9 "../${zip_name}" . -x ".git/*" "README.md")
             sha256sum "${zip_name}" > "${zip_name}.sha256"
             mv "${zip_name}" "${zip_name}.sha256" release-pkg/
@@ -224,13 +264,67 @@ jobs:
           path: release-pkg/*
 
       - name: 🚀 Publish GitHub Release
-        if: ${{ inputs.create_release }}
+        if: ${{ inputs.create_release || github.event_name == 'push' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           REL_TAG="${VERSION_TAG}-${BUILD_TIME}"
-          RELEASE_TITLE="PhoenyxCore v${VERSION_TAG} - ${BUILD_DATE}"
+          RELEASE_TITLE="PhoenyxCore ${VERSION_TAG} - ${BUILD_DATE}"
           gh release create "${REL_TAG}" \
             release-pkg/* \
             --title "${RELEASE_TITLE}" \
-            --notes "PhoenyxCore v${VERSION_TAG} build ${BUILD_DATE}"
+            --notes "PhoenyxCore ${VERSION_TAG} build ${BUILD_DATE}"
+
+      - name: 📣 Notify Telegram - Build result
+        if: ${{ always() && (github.event_name == 'push' || inputs.post_to_telegram) }}
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          JOB_STATUS: ${{ job.status }}
+          VERSION_INPUT: ${{ inputs.version || github.ref_name }}
+          COMPILER_INPUT: ${{ inputs.compiler || 'GreenForce-Clang' }}
+          BRANCH_INPUT: ${{ inputs.branch || 'lineage-24.0' }}
+          DEVICE_INPUT: ${{ inputs.device || 'cupid' }}
+          CREATE_RELEASE_INPUT: ${{ inputs.create_release || github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${TELEGRAM_BOT_TOKEN}" || -z "${TELEGRAM_CHAT_ID}" ]]; then
+            echo "::warning::Telegram notification skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID secret is missing."
+            exit 1
+          fi
+
+          version="${VERSION_INPUT#v}"
+          version_tag="${VERSION_TAG:-v${version}}"
+          build_time="${BUILD_TIME:-unknown}"
+          build_date="${BUILD_DATE:-unavailable}"
+          run_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          if [[ "${JOB_STATUS}" == "success" ]]; then
+            if [[ "${CREATE_RELEASE_INPUT}" == "true" ]]; then
+              release_url="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${version_tag}-${build_time}"
+              message="$(printf '✅ PhoenyxCore build completed successfully\nVersion: %s\nBranch: %s\nDevice(s): %s\nCompiler: %s\nBuild date: %s\nRelease: %s' \
+                "${version_tag}" "${BRANCH_INPUT}" "${DEVICE_INPUT}" "${COMPILER_INPUT}" \
+                "${build_date}" "${release_url}")"
+            else
+              message="$(printf '✅ PhoenyxCore build completed successfully\nVersion: %s\nBranch: %s\nDevice(s): %s\nCompiler: %s\nBuild date: %s\nRelease was not requested.\nWorkflow/artifacts: %s' \
+                "${version_tag}" "${BRANCH_INPUT}" "${DEVICE_INPUT}" "${COMPILER_INPUT}" \
+                "${build_date}" "${run_url}")"
+            fi
+          else
+            message="$(printf '❌ PhoenyxCore build failed (status: %s)\nVersion: %s\nBranch: %s\nDevice(s): %s\nCompiler: %s\nBuild date: %s\nLogs: %s' \
+              "${JOB_STATUS}" "${version_tag}" "${BRANCH_INPUT}" "${DEVICE_INPUT}" \
+              "${COMPILER_INPUT}" "${build_date}" "${run_url}")"
+          fi
+
+          if ! response="$(curl --silent --show-error --fail-with-body \
+            --request POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${message}")"; then
+            echo "::warning::Telegram result notification could not be sent."
+            exit 1
+          fi
+          if ! jq -e '.ok == true' <<< "${response}" >/dev/null; then
+            echo "::warning::Telegram API rejected the result notification."
+            exit 1
+          fi
