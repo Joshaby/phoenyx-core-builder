@@ -1,4 +1,4 @@
-name: Build PhoenyxCore Kernel for Xiaomi SM8450 (Based on LineageOS Xiaomi SM8450)
+name: Build PhoenyxCore Kernel
 
 on:
   push:
@@ -14,6 +14,10 @@ on:
         options:
           - "GreenForce-Clang"
           - "AOSP-Clang"
+      version:
+        description: "Kernel version (with or without the v prefix)"
+        required: true
+        type: string
       create_release:
         description: "Create GitHub Release"
         type: boolean
@@ -58,13 +62,35 @@ jobs:
       - name: 📦 Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            bc cpio flex bison git python-is-python3 tar aria2 perl wget curl lz4 libssl-dev libelf-dev dwarves zip zstd
+          sudo apt-get install -y bc cpio flex bison git python-is-python3 tar aria2 perl wget curl lz4 libssl-dev libelf-dev dwarves zip zstd
 
       - name: ⚙️ Setup Environment
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
         run: |
-          echo "BUILD_TIME=$(TZ=America/Sao_Paulo date '+%d%m%Y-%H%M')" >> "$GITHUB_ENV"
-          echo "BUILD_DATE=\"$(TZ=America/Sao_Paulo date '+%b %d %Y')\"" >> "$GITHUB_ENV"
+          if [[ -n "${VERSION_INPUT}" ]]; then
+            VERSION="${VERSION_INPUT#v}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+
+          if [[ ! "${VERSION}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "::error::Invalid version '${VERSION}'. Use letters, numbers, dots, underscores, or hyphens."
+            exit 1
+          fi
+
+          BUILD_EPOCH="$(date +%s)"
+          BUILD_TIME="$(TZ=America/Sao_Paulo date -d "@${BUILD_EPOCH}" '+%d%m%Y-%H%M')"
+          BUILD_DATE="$(TZ=America/Sao_Paulo date -d "@${BUILD_EPOCH}" '+%b %d %Y %H:%M')"
+          BUILD_TIMESTAMP="$(TZ=America/Sao_Paulo date -d "@${BUILD_EPOCH}" '+%a %b %d %H:%M:%S %Z %Y')"
+
+          {
+            echo "VERSION=${VERSION}"
+            echo "VERSION_TAG=v${VERSION}"
+            echo "BUILD_TIME=${BUILD_TIME}"
+            echo "BUILD_DATE=${BUILD_DATE}"
+            echo "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}"
+          } >> "$GITHUB_ENV"
 
       - name: 🔧 Setup Compiler
         shell: bash
@@ -114,6 +140,7 @@ jobs:
           export SUBARCH=arm64
           export KBUILD_BUILD_USER=Joshaby
           export KBUILD_BUILD_HOST=LineageOS
+          export KBUILD_BUILD_TIMESTAMP="${BUILD_TIMESTAMP}"
           export LLVM=1
           export LLVM_IAS=1
           export CC=clang
@@ -133,7 +160,7 @@ jobs:
             arch/arm64/configs/vendor/"${{ github.event.inputs.device }}"_GKI.config
 
           # 4. Brand localversion
-          ./scripts/config --file out/.config --set-str LOCALVERSION "-PhoenyxCore.LTO.v3"
+          ./scripts/config --file out/.config --set-str LOCALVERSION "-PhoenyxCore.LTO.v${VERSION_TAG}"
 
           # 5. ThinLTO config with 2 parallel threads wrapper to prevent link OOM
           # ./scripts/config --file out/.config -d LTO_NONE -d LTO_CLANG_FULL -e LTO_CLANG -e LTO_CLANG_THIN
@@ -153,21 +180,16 @@ jobs:
             exit 1
           fi
           ls -lh out/arch/arm64/boot/Image
-          cp out/.config out/phoenyxcore_defconfig.txt
-
-      - name: 💾 Upload Config
-        uses: actions/upload-artifact@v4
-        with:
-          name: configs-${{ env.BUILD_TIME }}
-          path: kernel/xiaomi/sm8450/out/phoenyxcore_defconfig.txt
 
       - name: 📂 Package AnyKernel3 ZIP
         run: |
           mkdir -p ak3-pkg
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3-pkg
           cp kernel/xiaomi/sm8450/out/arch/arm64/boot/Image ak3-pkg/Image
+          cp -f ak3/anykernel.sh ak3-pkg/anykernel.sh
+          sed -i "s|^kernel.string=.*|kernel.string=PhoenyxCore v${VERSION_TAG} - Build ${BUILD_DATE} - By tg@Joshaby (http://t.me/Joshaby)|" ak3-pkg/anykernel.sh
 
-          ZIP_NAME="PhoenyxCore-${BUILD_TIME}.zip"
+          ZIP_NAME="PhoenyxCore-v${VERSION_TAG}-${BUILD_TIME}.zip"
           cd ak3-pkg
           zip -r9 "../${ZIP_NAME}" . -x ".git/*" "README.md"
           cd ..
@@ -178,12 +200,11 @@ jobs:
           mkdir -p release-pkg
           mv "${ZIP_NAME}" release-pkg/
           mv "${ZIP_NAME}.sha256" release-pkg/
-          cp kernel/xiaomi/sm8450/out/arch/arm64/boot/Image release-pkg/Image-cupid
 
       - name: 📤 Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhoenyxCore-${BUILD_TIME}
+          name: PhoenyxCore v${{ env.VERSION_TAG }} ${{ env.BUILD_TIME }}
           path: release-pkg/*
 
       - name: 🚀 Publish GitHub Release
@@ -191,9 +212,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          REL_TAG="v3-${BUILD_TIME}"
-          RELEASE_TITLE="PhoenyxCore v3 - ${BUILD_TIME}"
+          REL_TAG="v${VERSION_TAG}-${BUILD_TIME}"
+          RELEASE_TITLE="PhoenyxCore v${VERSION_TAG} - ${BUILD_DATE}"
           gh release create "${REL_TAG}" \
             release-pkg/* \
             --title "${RELEASE_TITLE}" \
-            --notes "PhoenyxCore v3"
+            --notes "PhoenyxCore v${VERSION_TAG} build ${BUILD_DATE}"
