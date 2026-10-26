@@ -223,9 +223,10 @@ jobs:
           for device in "${devices[@]}"; do
             echo "::group::Building kernel for ${device}"
             out_dir="out-${device}"
+            mkdir -p "${out_dir}"
+            make O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 gki_defconfig
 
             ./scripts/kconfig/merge_config.sh -O "${out_dir}" -m "${out_dir}/.config" \
-              arch/arm64/configs/gki_defconfig \
               arch/arm64/configs/vendor/waipio_GKI.config \
               arch/arm64/configs/vendor/xiaomi_GKI.config \
               "arch/arm64/configs/vendor/${device}_GKI.config"
