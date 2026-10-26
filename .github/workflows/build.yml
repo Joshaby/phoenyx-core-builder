@@ -200,7 +200,15 @@ jobs:
           export LLVM=1
           export LLVM_IAS=1
           export CC=clang
+          export CXX=clang++
+          export HOSTCC=clang
+          export HOSTCXX=clang++
           export LD=ld.lld
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export STRIP=llvm-strip
 
           # Free runner disk
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/share/swift || true
@@ -216,9 +224,8 @@ jobs:
             echo "::group::Building kernel for ${device}"
             out_dir="out-${device}"
 
-            make O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 gki_defconfig
-
             ./scripts/kconfig/merge_config.sh -O "${out_dir}" -m "${out_dir}/.config" \
+              arch/arm64/configs/gki_defconfig \
               arch/arm64/configs/vendor/waipio_GKI.config \
               arch/arm64/configs/vendor/xiaomi_GKI.config \
               "arch/arm64/configs/vendor/${device}_GKI.config"
@@ -231,9 +238,8 @@ jobs:
               --enable ARCH_SUPPORTS_LTO_CLANG_THIN \
               --enable HAS_LTO_CLANG \
               --set-str LOCALVERSION "-PhoenyxCore.LTO.${VERSION_TAG}"
-            make O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
 
-            make -j4 O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 Image
+            make -j4 O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=$CC CXX=$CXX HOSTCC=$HOSTCC HOSTCXX=$HOSTCXX LD=$LD AR=$AR NM=$NM OBJCOPY=$OBJCOPY OBJDUMP=$OBJDUMP STRIP=$STRIP Image
 
             image="${out_dir}/arch/arm64/boot/Image"
             if [[ ! -s "${image}" ]]; then
