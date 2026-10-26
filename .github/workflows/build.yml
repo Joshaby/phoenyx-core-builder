@@ -165,8 +165,6 @@ jobs:
         run: |
           mkdir -p ak3-pkg
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3-pkg
-          cp ak3/anykernel.sh ak3-pkg/anykernel.sh
-          cp ak3/banner ak3-pkg/banner
           cp kernel/xiaomi/sm8450/out/arch/arm64/boot/Image ak3-pkg/Image
 
           ZIP_NAME="PhoenyxCore-${BUILD_TIME}.zip"
