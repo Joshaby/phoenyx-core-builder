@@ -219,7 +219,10 @@ jobs:
               "arch/arm64/configs/vendor/${device}_GKI.config"
 
             ./scripts/config --file "${out_dir}/.config" \
+              --disable THINLTO \
+              --enable LTO_CLANG_THIN \
               --set-str LOCALVERSION "-PhoenyxCore.LTO.${VERSION_TAG}"
+            make O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
 
             make -j4 O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 Image
 
