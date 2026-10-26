@@ -219,10 +219,17 @@ jobs:
               "arch/arm64/configs/vendor/${device}_GKI.config"
 
             ./scripts/config --file "${out_dir}/.config" \
-              --disable THINLTO \
-              --enable LTO_CLANG_THIN \
               --set-str LOCALVERSION "-PhoenyxCore.LTO.${VERSION_TAG}"
             make O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+
+            if ! grep -qx 'CONFIG_LTO=y' "${out_dir}/.config" \
+              || ! grep -qx 'CONFIG_LTO_CLANG=y' "${out_dir}/.config" \
+              || ! grep -qx 'CONFIG_THINLTO=y' "${out_dir}/.config"; then
+              echo "::error::ThinLTO is not enabled in the final config for ${device}."
+              grep -E '^(CONFIG_(LTO|LTO_CLANG|THINLTO)=|# CONFIG_(LTO|LTO_CLANG|THINLTO) is not set)' "${out_dir}/.config" || true
+              exit 1
+            fi
+            grep -E '^CONFIG_(LTO|LTO_CLANG|THINLTO)=y$' "${out_dir}/.config"
 
             make -j4 O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 Image
 
