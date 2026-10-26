@@ -35,6 +35,13 @@ on:
         options:
           - "lineage-24.0"
           - "lineage-24.0-dev"
+      dependencies_branch:
+        description: "Select branch for device trees and modules"
+        required: true
+        default: "lineage-24.0"
+        type: choice
+        options:
+          - "lineage-24.0"
       device:
         description: "Select device to build"
         required: true
@@ -164,8 +171,11 @@ jobs:
       - name: Clone PhoenyxCore Source (Based on LineageOS Xiaomi SM8450)
         env:
           SOURCE_BRANCH: ${{ inputs.branch || 'lineage-24.0' }}
+          DEPENDENCIES_BRANCH: ${{ inputs.dependencies_branch || 'lineage-24.0' }}
         run: |
           git clone --depth=1 https://github.com/Joshabys-Xiaomi-12-Org/android_kernel_xiaomi_sm8450.git -b "${SOURCE_BRANCH}" kernel/xiaomi/sm8450
+          git clone --depth=1 https://github.com/LineageOS/android_kernel_xiaomi_sm8450-devicetrees.git -b "${DEPENDENCIES_BRANCH}" kernel/xiaomi/sm8450-devicetrees
+          git clone --depth=1 https://github.com/LineageOS/android_kernel_xiaomi_sm8450-modules.git -b "${DEPENDENCIES_BRANCH}" kernel/xiaomi/sm8450-modules
           cd kernel/xiaomi/sm8450
           echo "Kernel commit: $(git rev-parse HEAD)"
 
