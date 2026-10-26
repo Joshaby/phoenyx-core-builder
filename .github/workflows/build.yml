@@ -206,12 +206,6 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/share/swift || true
           free -h
 
-          wrapper="${GITHUB_WORKSPACE}/ld-thinlto-wrapper"
-          printf '#!/bin/bash\nexec ld.lld "$@" --thinlto-jobs=2\n' > "${wrapper}"
-          chmod +x "${wrapper}"
-          export LD="${wrapper}"
-          export HOSTLD="${wrapper}"
-
           if [[ "${DEVICE_INPUT}" == "all" ]]; then
             devices=(cupid zeus mayfly unicorn diting thor marble mondrian)
           else
