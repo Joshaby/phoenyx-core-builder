@@ -5,7 +5,7 @@
 
 ### AnyKernel setup
 properties() { '
-kernel.string=PhoenyxCore v3 - Build 20260913 - By tg@Joshaby (http://t.me/Joshaby) 
+kernel.string=TITLE
 do.devicecheck=0
 do.modules=0
 do.systemless=0

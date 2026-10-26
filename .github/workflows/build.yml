@@ -36,18 +36,20 @@ on:
         default: "cupid"
         type: choice
         options:
+          - "all"
           - "cupid"
           - "zeus"
           - "mayfly"
           - "unicorn"
           - "diting"
           - "thor"
+          - "marble"
           - "mondrian"
 
 jobs:
   Build-PhoenyxCore:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360
     permissions:
       contents: write
 
@@ -120,8 +122,10 @@ jobs:
           "$GITHUB_WORKSPACE/clang/bin/ld.lld" --version | sed -n '1p'
 
       - name: Clone PhoenyxCore Source (Based on LineageOS Xiaomi SM8450)
+        env:
+          SOURCE_BRANCH: ${{ inputs.branch || 'lineage-24.0' }}
         run: |
-          git clone --depth=1 https://github.com/Joshabys-Xiaomi-12-Org/android_kernel_xiaomi_sm8450.git -b "${{ github.event.inputs.branch }}" kernel/xiaomi/sm8450
+          git clone --depth=1 https://github.com/Joshabys-Xiaomi-12-Org/android_kernel_xiaomi_sm8450.git -b "${SOURCE_BRANCH}" kernel/xiaomi/sm8450
           cd kernel/xiaomi/sm8450
           echo "Kernel commit: $(git rev-parse HEAD)"
 
@@ -132,8 +136,10 @@ jobs:
 
       - name: 🛠️ Build Kernel
         shell: bash
+        env:
+          DEVICE_INPUT: ${{ inputs.device || 'cupid' }}
         run: |
-          set -e
+          set -euo pipefail
           cd kernel/xiaomi/sm8450
           export PATH="${CLANG_PATH}/bin:${PATH}"
           export ARCH=arm64
@@ -150,61 +156,71 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/share/swift || true
           free -h
 
-          # 1. Base GKI defconfig
-          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 gki_defconfig
-
-          # 2. Merge vendor fragments for cupid
-          ./scripts/kconfig/merge_config.sh -O out -m out/.config \
-            arch/arm64/configs/vendor/waipio_GKI.config \
-            arch/arm64/configs/vendor/xiaomi_GKI.config \
-            arch/arm64/configs/vendor/"${{ github.event.inputs.device }}"_GKI.config
-
-          # 4. Brand localversion
-          ./scripts/config --file out/.config --set-str LOCALVERSION "-PhoenyxCore.LTO.v${VERSION_TAG}"
-
-          # 5. ThinLTO config with 2 parallel threads wrapper to prevent link OOM
-          # ./scripts/config --file out/.config -d LTO_NONE -d LTO_CLANG_FULL -e LTO_CLANG -e LTO_CLANG_THIN
-          # make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
-
           wrapper="${GITHUB_WORKSPACE}/ld-thinlto-wrapper"
           printf '#!/bin/bash\nexec ld.lld "$@" --thinlto-jobs=2\n' > "${wrapper}"
           chmod +x "${wrapper}"
           export LD="${wrapper}"
           export HOSTLD="${wrapper}"
 
-          # Build Image
-          make -j4 O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 Image
-
-          if [ ! -s out/arch/arm64/boot/Image ]; then
-            echo "::error::Built Image not found!"
-            exit 1
+          if [[ "${DEVICE_INPUT}" == "all" ]]; then
+            devices=(cupid zeus mayfly unicorn diting thor marble mondrian)
+          else
+            devices=("${DEVICE_INPUT}")
           fi
-          ls -lh out/arch/arm64/boot/Image
+
+          for device in "${devices[@]}"; do
+            echo "::group::Building kernel for ${device}"
+            out_dir="out-${device}"
+
+            make O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 gki_defconfig
+            ./scripts/kconfig/merge_config.sh -O "${out_dir}" -m "${out_dir}/.config" \
+              arch/arm64/configs/vendor/waipio_GKI.config \
+              arch/arm64/configs/vendor/xiaomi_GKI.config \
+              "arch/arm64/configs/vendor/${device}_GKI.config"
+
+            ./scripts/config --file "${out_dir}/.config" \
+              --set-str LOCALVERSION "-PhoenyxCore.LTO.${VERSION_TAG}"
+
+            make -j4 O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 Image
+
+            image="${out_dir}/arch/arm64/boot/Image"
+            if [[ ! -s "${image}" ]]; then
+              echo "::error::Built Image not found for ${device}!"
+              exit 1
+            fi
+            ls -lh "${image}"
+            echo "::endgroup::"
+          done
 
       - name: 📂 Package AnyKernel3 ZIP
+        env:
+          DEVICE_INPUT: ${{ inputs.device || 'cupid' }}
         run: |
-          mkdir -p ak3-pkg
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3-pkg
-          cp kernel/xiaomi/sm8450/out/arch/arm64/boot/Image ak3-pkg/Image
-          cp -f ak3/anykernel.sh ak3-pkg/anykernel.sh
-          sed -i "s|^kernel.string=.*|kernel.string=PhoenyxCore v${VERSION_TAG} - Build ${BUILD_DATE} - By tg@Joshaby (http://t.me/Joshaby)|" ak3-pkg/anykernel.sh
+          set -euo pipefail
+          if [[ "${DEVICE_INPUT}" == "all" ]]; then
+            devices=(cupid zeus mayfly unicorn diting thor marble mondrian)
+          else
+            devices=("${DEVICE_INPUT}")
+          fi
 
-          ZIP_NAME="PhoenyxCore-v${VERSION_TAG}-${BUILD_TIME}.zip"
-          cd ak3-pkg
-          zip -r9 "../${ZIP_NAME}" . -x ".git/*" "README.md"
-          cd ..
-          sha256sum "${ZIP_NAME}" > "${ZIP_NAME}.sha256"
-
-          echo "ZIP_NAME=${ZIP_NAME}" >> "$GITHUB_ENV"
-          echo "ZIP_SHA256=$(cat ${ZIP_NAME}.sha256 | awk '{print $1}')" >> "$GITHUB_ENV"
           mkdir -p release-pkg
-          mv "${ZIP_NAME}" release-pkg/
-          mv "${ZIP_NAME}.sha256" release-pkg/
+          for device in "${devices[@]}"; do
+            package_dir="ak3-pkg-${device}"
+            git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "${package_dir}"
+            cp "kernel/xiaomi/sm8450/out-${device}/arch/arm64/boot/Image" "${package_dir}/Image"
+            cp -f ak3/anykernel.sh "${package_dir}/anykernel.sh"
+            sed -i "s|^kernel\\.string=TITLE$|kernel.string=PhoenyxCore ${VERSION_TAG} (${device}) - Build ${BUILD_DATE} - By tg@Joshaby (http://t.me/Joshaby)|" "${package_dir}/anykernel.sh"
+
+            zip_name="PhoenyxCore-v${VERSION_TAG}-${device}-${BUILD_TIME}.zip"
+            (cd "${package_dir}" && zip -r9 "../${zip_name}" . -x ".git/*" "README.md")
+            sha256sum "${zip_name}" > "${zip_name}.sha256"
+            mv "${zip_name}" "${zip_name}.sha256" release-pkg/
+          done
 
       - name: 📤 Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhoenyxCore v${{ env.VERSION_TAG }} ${{ env.BUILD_TIME }}
+          name: PhoenyxCore-${{ env.VERSION_TAG }}-${{ env.BUILD_TIME }}
           path: release-pkg/*
 
       - name: 🚀 Publish GitHub Release
@@ -212,7 +228,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          REL_TAG="v${VERSION_TAG}-${BUILD_TIME}"
+          REL_TAG="${VERSION_TAG}-${BUILD_TIME}"
           RELEASE_TITLE="PhoenyxCore v${VERSION_TAG} - ${BUILD_DATE}"
           gh release create "${REL_TAG}" \
             release-pkg/* \
