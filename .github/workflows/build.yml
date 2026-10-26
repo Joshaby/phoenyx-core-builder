@@ -212,6 +212,18 @@ jobs:
           export LD="${wrapper}"
           export HOSTLD="${wrapper}"
 
+          show_lto_config() {
+            local stage="$1"
+            local config="$2"
+            echo "::group::LTO config: ${stage}"
+            if ! grep -E '^(CONFIG_(LTO|LTO_CLANG|THINLTO|HAS_LTO_CLANG|ARCH_SUPPORTS_LTO_CLANG|ARCH_SUPPORTS_LTO_CLANG_THIN|CC_IS_CLANG|LD_IS_LLD)=|# CONFIG_(LTO|LTO_CLANG|THINLTO|HAS_LTO_CLANG|ARCH_SUPPORTS_LTO_CLANG|ARCH_SUPPORTS_LTO_CLANG_THIN|CC_IS_CLANG|LD_IS_LLD) is not set)' "${config}"; then
+              echo "No matching LTO/compiler symbols found in ${config}"
+            fi
+            clang --version | sed -n '1p'
+            ld.lld --version | sed -n '1p'
+            echo "::endgroup::"
+          }
+
           if [[ "${DEVICE_INPUT}" == "all" ]]; then
             devices=(cupid zeus mayfly unicorn diting thor marble mondrian)
           else
@@ -223,20 +235,23 @@ jobs:
             out_dir="out-${device}"
 
             make O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 gki_defconfig
+            show_lto_config "after gki_defconfig (${device})" "${out_dir}/.config"
+
             ./scripts/kconfig/merge_config.sh -O "${out_dir}" -m "${out_dir}/.config" \
               arch/arm64/configs/vendor/waipio_GKI.config \
               arch/arm64/configs/vendor/xiaomi_GKI.config \
               "arch/arm64/configs/vendor/${device}_GKI.config"
+            show_lto_config "after device fragments (${device})" "${out_dir}/.config"
 
             ./scripts/config --file "${out_dir}/.config" \
               --set-str LOCALVERSION "-PhoenyxCore.LTO.${VERSION_TAG}"
             make O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
 
+            show_lto_config "after olddefconfig (${device})" "${out_dir}/.config"
             if ! grep -qx 'CONFIG_LTO=y' "${out_dir}/.config" \
               || ! grep -qx 'CONFIG_LTO_CLANG=y' "${out_dir}/.config" \
               || ! grep -qx 'CONFIG_THINLTO=y' "${out_dir}/.config"; then
               echo "::error::ThinLTO is not enabled in the final config for ${device}."
-              grep -E '^(CONFIG_(LTO|LTO_CLANG|THINLTO)=|# CONFIG_(LTO|LTO_CLANG|THINLTO) is not set)' "${out_dir}/.config" || true
               exit 1
             fi
             grep -E '^CONFIG_(LTO|LTO_CLANG|THINLTO)=y$' "${out_dir}/.config"
