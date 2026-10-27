@@ -230,7 +230,8 @@ jobs:
               --enable LTO_CLANG_FULL \
               --set-str LOCALVERSION "-PhoenyxCore.LTO.${VERSION_TAG}"
 
-              make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 Image
+            make O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+            make -j"$(nproc --all)" O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 Image
 
             image="${out_dir}/arch/arm64/boot/Image"
             if [[ ! -s "${image}" ]]; then
