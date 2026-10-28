@@ -218,16 +218,17 @@ jobs:
             ./scripts/kconfig/merge_config.sh -O "${out_dir}" -m "${out_dir}/.config" \
               arch/arm64/configs/vendor/waipio_GKI.config \
               arch/arm64/configs/vendor/xiaomi_GKI.config \
+              arch/arm64/configs/vendor/debugfs.config \
               "arch/arm64/configs/vendor/${device}_GKI.config"
 
             ./scripts/config --file "${out_dir}/.config" \
-              --disable LTO \
-              --disable LTO_CLANG \
-              --disable THINLTO \
-              --disable ARCH_SUPPORTS_LTO_CLANG \
-              --disable ARCH_SUPPORTS_LTO_CLANG_THIN \
-              --disable HAS_LTO_CLANG \
-              --enable LTO_CLANG_FULL \
+              -d LTO_CLANG \
+              -d LTO_NONE \
+              -d THINLTO \
+              -d ARCH_SUPPORTS_LTO_CLANG \
+              -d ARCH_SUPPORTS_LTO_CLANG_THIN \
+              -d HAS_LTO_CLANG \
+              -e LTO_CLANG_THIN \
               --set-str LOCALVERSION "-PhoenyxCore.LTO.${VERSION_TAG}"
 
             make O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
