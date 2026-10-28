@@ -228,10 +228,16 @@ jobs:
               -d ARCH_SUPPORTS_LTO_CLANG \
               -d ARCH_SUPPORTS_LTO_CLANG_THIN \
               -d HAS_LTO_CLANG \
-              -e LTO_CLANG_THIN \
-              --set-str LOCALVERSION "-PhoenyxCore.LTO.${VERSION_TAG}"
+              -e LTO_CLANG_THIN
+
+            ./scripts/config --file "${out_dir}/.config" \
+              --set-str LOCALVERSION "" \
+              --set-str LOCALVERSION_AUTO "n"
+
+            sed -i '217s/^[[:space:]]*echo "$res"[[:space:]]*$/res="${res\/-gki+\/}"\necho "$res"/' scripts/setlocalversion
 
             make O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+            echo "Kernel release: $(make O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 -s kernelrelease)"
             make -j"$(nproc --all)" O="${out_dir}" ARCH=arm64 LLVM=1 LLVM_IAS=1 Image
 
             image="${out_dir}/arch/arm64/boot/Image"
